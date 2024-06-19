@@ -4,6 +4,8 @@ Demo of 2D raycasting in the TIC-80 fantasy console, using Lua.
 
 Based on this video tutorial by Daniel Shiffman: [Coding Challenge #145: 2D Raycasting](https://www.youtube.com/watch?v=TOEi6T2mtHo)
 
+![Black lines representing walls, with yellow shaded regions representing rays cast out from the player location.](./thumbnail.png)
+
 ## Code
 
 ```lua
