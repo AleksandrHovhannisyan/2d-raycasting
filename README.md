@@ -9,7 +9,6 @@ Based on this video tutorial by Daniel Shiffman: [Coding Challenge #145: 2D Rayc
 ## Code
 
 ```lua
--- title:   2D Raycasting Demo
 -- author:  Aleksandr Hovhannisyan
 -- desc:    Lua implementation of this tutorial by Daniel Shiffman: https://www.youtube.com/watch?v=TOEi6T2mtHo
 -- site:    aleksandrhovhannisyan.com
@@ -26,7 +25,8 @@ function BOOT()
     }
     Screen = {
         WIDTH = 240,
-        HEIGHT = 136
+        HEIGHT = 136,
+        PADDING = 2
     }
     Btn = {
         UP = 0,
@@ -58,9 +58,15 @@ function BOOT()
         self.y = self.y / length
     end
 
-    function Vector:fromAngle(radians)
-        local x = math.cos(radians)
-        local y = math.sin(radians)
+    -- Scales this vector by the given scalar
+    function Vector:scale(scalar)
+        self.x = self.x * scalar
+        self.y = self.y * scalar
+    end
+
+    function Vector:fromAngle(angleRadians)
+        local x = math.cos(angleRadians)
+        local y = math.sin(angleRadians)
         return Vector:new(x, y)
     end
 
@@ -72,9 +78,14 @@ function BOOT()
     function Ray:new(position, angleRadians)
         local instance = setmetatable({}, Ray)
         instance.position = position
-        instance.direction = Vector:fromAngle(angleRadians)
-        instance.direction:normalize()
+        instance:setAngle(angleRadians)
         return instance
+    end
+
+    function Ray:setAngle(angleRadians)
+        self.angle = angleRadians
+        self.direction = Vector:fromAngle(self.angle)
+        self.direction:normalize()
     end
 
     -- Casts this ray onto the specified boundary and returns the intersection
@@ -132,11 +143,17 @@ function BOOT()
     Particle = {}
     Particle.__index = Particle
 
-    function Particle:new()
+    function Particle:new(fovDegrees)
         local instance = setmetatable({}, Particle)
+        -- The particle's current position on the screen
         instance.position = Vector:new(Screen.WIDTH / 2, Screen.HEIGHT / 2)
+        -- Angle in radians representing direction the particle is facing
+        instance.angle = math.rad(0)
+        -- Field of view (in degrees) of the particle, representing how far out to the sides it can cast its rays
+        instance.fov = fovDegrees
+        -- The rays that the particle will cast out within its FOV cone
         instance.rays = {}
-        for angleDegrees = 0, 359, 0.1 do
+        for angleDegrees = -fovDegrees / 2, fovDegrees / 2 - 1, 1 do
             table.insert(instance.rays, Ray:new(instance.position, math.rad(angleDegrees)))
         end
         return instance
@@ -169,8 +186,46 @@ function BOOT()
             if closestIntersection ~= nil then
                 line(self.position.x, self.position.y, closestIntersection.x, closestIntersection.y, Color.YELLOW)
             end
-            -- Draw a red dot for the particle as a point of reference
-            circ(self.position.x, self.position.y, 1, Color.RED)
+        end
+    end
+
+    function Particle:draw()
+        -- Draw a red dot for the particle as a point of reference
+        circ(self.position.x, self.position.y, 1, Color.RED)
+        -- Draw a direction vector
+        direction = Vector:fromAngle(self.angle)
+        direction:normalize()
+        direction:scale(8)
+        line(self.position.x, self.position.y, self.position.x + direction.x, self.position.y + direction.y, Color.RED)
+    end
+
+    function Particle:setAngle(angleRadians)
+        local angleDelta = angleRadians - self.angle
+        trace("angleRadians=" .. angleRadians .. ", angleDelta=" .. angleDelta)
+        self.angle = angleRadians
+        for k, ray in pairs(self.rays) do
+            -- FIXME: why do I need to do -angleDelta?
+            ray:setAngle(ray.angle - angleDelta)
+        end
+    end
+
+    -- Updates the particle's position and orientation
+    function Particle:update()
+        -- Force the particle to face the direction of the mouse cursor
+        local mouseX, mouseY = mouse()
+        local angle = math.atan2(mouseY - self.position.y, mouseX - self.position.x)
+        self:setAngle(angle)
+        if btn(Btn.UP) then
+            self.position.y = self.position.y - 1
+        end
+        if btn(Btn.DOWN) then
+            self.position.y = self.position.y + 1
+        end
+        if btn(Btn.LEFT) then
+            self.position.x = self.position.x - 1
+        end
+        if btn(Btn.RIGHT) then
+            self.position.x = self.position.x + 1
         end
     end
 
@@ -186,19 +241,26 @@ function BOOT()
             table.insert(boundaries, boundary)
         end
         -- Outer walls
-        local offset = 2
-        local wallTop = Boundary:new(Vector:new(offset, offset), Vector:new(Screen.WIDTH - offset, offset))
+        local wallTop =
+            Boundary:new(
+            Vector:new(Screen.PADDING, Screen.PADDING),
+            Vector:new(Screen.WIDTH - Screen.PADDING, Screen.PADDING)
+        )
         local wallRight =
             Boundary:new(
-            Vector:new(Screen.WIDTH - offset, offset),
-            Vector:new(Screen.WIDTH - offset, Screen.HEIGHT - offset)
+            Vector:new(Screen.WIDTH - Screen.PADDING, Screen.PADDING),
+            Vector:new(Screen.WIDTH - Screen.PADDING, Screen.HEIGHT - Screen.PADDING)
         )
         local wallBottom =
             Boundary:new(
-            Vector:new(Screen.WIDTH - offset, Screen.HEIGHT - offset),
-            Vector:new(offset, Screen.HEIGHT - offset)
+            Vector:new(Screen.WIDTH - Screen.PADDING, Screen.HEIGHT - Screen.PADDING),
+            Vector:new(Screen.PADDING, Screen.HEIGHT - Screen.PADDING)
         )
-        local wallLeft = Boundary:new(Vector:new(offset, Screen.HEIGHT - offset), Vector:new(offset, offset))
+        local wallLeft =
+            Boundary:new(
+            Vector:new(Screen.PADDING, Screen.HEIGHT - Screen.PADDING),
+            Vector:new(Screen.PADDING, Screen.PADDING)
+        )
         table.insert(boundaries, wallTop)
         table.insert(boundaries, wallRight)
         table.insert(boundaries, wallBottom)
@@ -207,16 +269,14 @@ function BOOT()
 
     -- Main globals
     createBoundaries()
-    particle = Particle:new()
+    particle = Particle:new(90)
 end
 
 function TIC()
     cls(Color.WHITE)
-    -- Sync particle position to mouse
-    local mouseX, mouseY = mouse()
-    particle.position.x = mouseX
-    particle.position.y = mouseY
+    particle:update()
     particle:cast(boundaries)
+    particle:draw()
     -- Draw boundaries last so they show on top
     for i, boundary in pairs(boundaries) do
         boundary:draw()
